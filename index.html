@@ -234,6 +234,19 @@ button:disabled{cursor:not-allowed; opacity:.55}
 
 /* ---- 实时转写 ---- */
 .filler-strip{display:flex; gap:6px; flex-wrap:wrap; margin-bottom:11px}
+.recog-status{
+  display:none; align-items:center; gap:8px;
+  font-size:12.5px; line-height:1.5; border-radius:8px;
+  padding:9px 12px; margin-bottom:11px; border:1px solid transparent;
+}
+.recog-status:not([hidden]){display:flex}
+.recog-status .dot{width:8px; height:8px; border-radius:50%; flex:0 0 auto}
+.recog-status.ok{background:#eafaf1; border-color:#bfe6cf; color:#1f7a4d}
+.recog-status.ok .dot{background:#29a36a}
+.recog-status.warn{background:#fff6e9; border-color:#f3d9a8; color:#9a6a13}
+.recog-status.warn .dot{background:#e0922a}
+.recog-status.err{background:#fdecec; border-color:#f3bcbc; color:#b23b3b}
+.recog-status.err .dot{background:#d64545}
 .fpill{
   font-size:11.5px; padding:3px 9px; border-radius:6px;
   background:var(--bg2); border:1px solid var(--line2); color:var(--ink2);
@@ -608,6 +621,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       <!-- 实时转写 -->
       <section class="card">
         <div class="card-head"><span>实时转写</span><span class="tag" id="recogTag">自动识别</span></div>
+        <div class="recog-status" id="recogStatus" hidden></div>
         <div class="filler-strip" id="fillerStrip"></div>
         <div class="transcript" id="transcript">
           <div class="empty" id="transcriptEmpty">转写内容会在这里逐句出现。<br>填充词自动高亮，超过 1.5 秒的停顿会插入 ⏸ 标记。</div>
@@ -717,6 +731,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
 
       <h4>③ 浏览器与降级</h4>
       <p>Chrome / Edge 支持 <code>webkitSpeechRecognition</code>（zh-CN），为完整模式；Safari / Firefox 自动切换为「纯计时 + 手动标记」：点按钮补记口头禅与长停顿，并可粘贴讲稿估算平均语速。麦克风被拒绝时同样自动降级，计时不受影响。</p>
+      <p class="set-tip">⚠ <b>网络与地域提示</b>：该识别后端由浏览器厂商提供（Chrome/Edge 走 Google 语音服务），<b>国内网络常被拦截或超时</b>，表现为「状态条长时间无文字 / 指标全 0 / 提示 network 错误」。此时应用会自动停留在计时与手动标记模式，不影响演练；如需稳定识别，请等待二期离线方案（Whisper.cpp WASM）或改用受支持的网络环境。另外，<b>直接双击 <code>file://</code> 打开页面时麦克风与识别均不可用</b>，请通过 <code>http://localhost</code> 或 HTTPS 访问。</p>
 
       <h4>④ 部署到 GitHub Pages</h4>
       <ul>
@@ -778,6 +793,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     volNow:$('volNow'), volCanvas:$('volCanvas'), volPh:$('volPh'),
     mChars:$('mChars'), mPace:$('mPace'), mFiller:$('mFiller'), mPause:$('mPause'),
     recogTag:$('recogTag'), fillerStrip:$('fillerStrip'), transcript:$('transcript'),
+    recogStatus:$('recogStatus'),
     transcriptEmpty:$('transcriptEmpty'),
     manualCard:$('manualCard'), manualTitle:$('manualTitle'), manualToggle:$('manualToggle'),
     manualBody:$('manualBody'), fillerBtns:$('fillerBtns'), pauseBtn:$('pauseBtn'),
@@ -809,7 +825,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     manualPauses:0,
     customWords:[],
     lastResultT:0,
-    timerId:null, sampleId:null, volRaf:null,
+    timerId:null, sampleId:null, volRaf:null, watchdogId:null,
     canvasDims:{ wpm:null, vol:null },
     feedback:null
   };
@@ -954,6 +970,15 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       el.transcriptEmpty.innerHTML = '转写内容会在这里逐句出现。<br>填充词自动高亮，超过 1.5 秒的停顿会插入 ⏸ 标记。';
     }
   }
+
+  // 实时识别状态条：kind ∈ ok | warn | err
+  function setRecogStatus(kind, msg){
+    if(!msg){ el.recogStatus.hidden = true; return; }
+    el.recogStatus.className = 'recog-status ' + kind;
+    el.recogStatus.hidden = false;
+    el.recogStatus.innerHTML = '<span class="dot"></span><span>'+esc(msg)+'</span>';
+  }
+  function clearRecogStatus(){ el.recogStatus.hidden = true; }
 
   function renderFillerButtons(){
     var words = uniq(allWords());
@@ -1213,21 +1238,33 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
         }
       }
       state.interim = interim;
-      renderTranscript();
+      // 收到结果即说明识别链路正常，优先刷新指标（即便转写渲染异常也不阻塞），并清除无结果警告
       renderMetrics();
+      clearRecogStatus();
+      renderTranscript();
     };
 
     rec.onerror = function(e){
       var err = e.error || '';
+      // 瞬时错误：识别会在 onend 后自动续接，无需处理
       if(err === 'no-speech' || err === 'aborted') return;
+      // 权限 / 麦克风缺失：不可恢复，直接降级为手动模式
       if(err === 'not-allowed' || err === 'service-not-allowed'){
         state.micDenied = true;
         fallback('麦克风权限被拒绝');
         return;
       }
-      if(err === 'audio-capture'){ toast('未检测到可用麦克风，已保留计时与手动标记'); return; }
-      if(err === 'network'){ toast('浏览器语音服务暂不可用，可用「手动补记」继续'); return; }
-      toast('识别异常：'+err+'（不影响计时）');
+      if(err === 'audio-capture'){
+        fallback('未检测到可用麦克风');
+        return;
+      }
+      // network 等：识别服务可能受限（如国内访问 Google 语音常被拦截）。
+      // 不直接降级以保留自动续接，但给出醒目常驻提示，引导使用手动补记。
+      if(err === 'network'){
+        setRecogStatus('warn', '语音识别服务返回 network 错误：很可能是网络受限（国内访问 Google 语音常被拦截），识别可能无法返回文字。可继续用下方「手动补记」或粘贴讲稿估算语速；或直接「结束演练」导出反馈卡。');
+        return;
+      }
+      setRecogStatus('warn', '识别异常：'+err+'（计时不受影响，可用「手动补记」继续）');
     };
 
     // Chrome 在长静默后会结束 continuous 识别，需要自动续接
@@ -1243,6 +1280,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     try{ rec.start(); }
     catch(e){ fallback('语音识别无法启动'); return; }
     state.recognition = rec;
+    setRecogStatus('ok', '识别中：请开始说话，文字会逐句出现在这里');
   }
 
   function fallback(reason){
@@ -1250,8 +1288,10 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     state.manualMode = true;
     try{ if(state.recognition){ state.recognition.onend = null; state.recognition.abort(); } }catch(e){}
     state.recognition = null;
+    clearRecogStatus();
     updateModeBadge();
     renderTranscript();
+    setRecogStatus('err', reason + '：已切换为「纯计时 + 手动标记」模式。可在下方点按钮补记口头禅 / 长停顿，或粘贴讲稿估算平均语速。');
     toast(reason + '，已切换为「纯计时 + 手动标记」模式');
   }
 
@@ -1382,6 +1422,13 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       : (finished ? '本场已结束，可导出反馈卡或「再练一次」' : '首次点击会请求麦克风权限；<b>空格键</b>也可开始 / 结束。演练结束后自动生成反馈卡并可导出图片。');
   }
 
+  // 看门狗：开练后一段时间内仍无任何识别结果，主动提示可能原因（直击「指标全 0」症状）
+  function checkRecogAlive(){
+    if(state.phase !== 'running' || state.manualMode) return;
+    if(totalChars() > 0){ clearRecogStatus(); return; }
+    setRecogStatus('warn', '识别已启动数秒仍未收到任何文字：很可能是语音服务网络受限（国内访问 Google 语音常被拦截），或当前浏览器/网络不支持中文识别。可继续用下方「手动补记」，或粘贴讲稿估算语速；也可改用本地离线识别（二期 Whisper.cpp）。');
+  }
+
   function start(){
     if(state.phase === 'running'){ stop(); return; }
     var fromFinished = (state.phase === 'finished');
@@ -1408,6 +1455,9 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
 
     state.timerId = setInterval(tick, 200);
     state.sampleId = setInterval(sampleWpm, 1000);
+    // 6 秒后若仍无文字，触发看门狗提示（识别链路可能已无声返回）
+    clearTimeout(state.watchdogId);
+    state.watchdogId = setTimeout(checkRecogAlive, 6000);
   }
 
   function stop(){
@@ -1419,6 +1469,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       try{ state.recognition.onend = null; state.recognition.stop(); }catch(e){}
       state.recognition = null;
     }
+    clearTimeout(state.watchdogId);
     stopAudio();
     state.interim = '';
     state.endTime = Date.now();
@@ -1437,6 +1488,8 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     if(state.phase === 'running') return;
     clearInterval(state.timerId); clearInterval(state.sampleId);
     state.timerId = state.sampleId = null;
+    clearTimeout(state.watchdogId);
+    clearRecogStatus();
     stopAudio();
     state.phase = 'idle'; state.startTime = 0; state.endTime = 0;
     state.timeline = []; state.interim = ''; state.segCount = 0;
@@ -1835,6 +1888,13 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
   requestAnimationFrame(function(){ fitAll(); drawWpm(); drawVol(); });
   if(state.manualMode){
     toast('当前浏览器不支持本地语音识别，已切换为「纯计时 + 手动标记」模式');
+  }
+  // 非安全上下文（直接双击 file:// 打开）时，麦克风与语音识别均不可用，主动提示
+  if(typeof location !== 'undefined' && location.protocol === 'file:'){
+    state.manualMode = true;
+    updateModeBadge();
+    setRecogStatus('err', '当前以 file:// 方式打开，浏览器禁止使用麦克风与语音识别。请改用本地服务器：在本文件目录运行 <b>python3 -m http.server 8080</b>，再访问 <b>http://localhost:8080</b>（或部署到 HTTPS 站点）。当前为「纯计时 + 手动标记」模式。');
+    el.scriptBox.placeholder = '粘贴 / 速记讲稿：结束后按字数估算平均语速（此框内容不会上传）';
   }
 })();
 </script>
