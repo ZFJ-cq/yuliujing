@@ -1342,9 +1342,18 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
   //   model/model.vosk  中文小模型打包（vosk-model-small-cn-0.22，约 40MB）
   // 仅在 Google(webkitSpeechRecognition) 报错 / 长时间无结果 / 浏览器不支持时启用。
   var VOSK_MODEL_TIMEOUT = 180000;   // 模型加载上限 3 分钟（首次下载 40MB 给足余量）
+  // 必须用「绝对 URL」：模型是在 Web Worker（blob: 源）里 fetch 的，
+  // 相对路径会按 blob:https://host/<uuid> 解析，GitHub Pages 子目录（/仓库名/）下的前缀会丢 → 404。
+  function absUrl(path){
+    try{
+      var base = (document && document.baseURI) ? document.baseURI
+               : (location && location.href ? location.href : '');
+      return new URL(path, base).href;
+    }catch(e){ return path; }
+  }
   var VOSK = {
-    libUrl: './vosk/vosk.js',
-    modelUrl: './model/model.vosk',
+    libUrl: absUrl('vosk/vosk.js'),
+    modelUrl: absUrl('model/model.vosk'),
     scriptState:0,        // 0 未加载 / 1 加载中 / 2 已就绪
     model:null, loading:false, ready:false, active:false, lastError:null, ticker:null,
     ctx:null, ownCtx:false, srcNode:null, procNode:null, sinkNode:null, rec:null,
