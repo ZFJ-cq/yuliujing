@@ -258,6 +258,22 @@ button:disabled{cursor:not-allowed; opacity:.55}
   background:var(--jade-d,#2f6f5b); color:#fff;
 }
 .recog-status button:active{ transform:translateY(1px) }
+/* 模型下载进度条（放在状态条里） */
+.recog-status .pbar{
+  flex:1 1 auto; min-width:60px; height:6px; border-radius:99px;
+  background:rgba(0,0,0,.09); overflow:hidden;
+}
+.recog-status .pbar i{
+  display:block; height:100%; width:0%; border-radius:99px;
+  background:currentColor; opacity:.55; transition:width .25s ease;
+}
+.recog-status .pnum{flex:0 0 auto; font-variant-numeric:tabular-nums; font-weight:600}
+/* 设置条下方的小链接按钮（提前下载模型） */
+.setup-hint .linkbtn{
+  border:none; background:none; padding:0 2px; margin:0 2px; cursor:pointer;
+  color:var(--jade-d,#236158); font-weight:700; text-decoration:underline; font-size:inherit;
+  font-family:inherit;
+}
 .fpill{
   font-size:11.5px; padding:3px 9px; border-radius:6px;
   background:var(--bg2); border:1px solid var(--line2); color:var(--ink2);
@@ -1064,6 +1080,45 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     renderFillerStrip();
     updateTimerUI();
     updateModeBadge();
+    renderModelHint();
+  }
+
+  /* ---- 离线模型提示 / 提前下载（避免演练中途干等 40MB） ---- */
+  function renderModelHint(){
+    if(state.phase === 'running') return;
+    ModelCache.get().then(function(b){
+      if(state.phase === 'running') return;
+      if(b && b.size === MODEL_SIZE){
+        el.setupHint.innerHTML = '离线识别模型已缓存到本机（'+(MODEL_SIZE/1048576).toFixed(1)+' MB），无需再下载。';
+      }else{
+        el.setupHint.innerHTML = '国内网络下 Google 语音常不可用，会自动切离线识别；首次使用需下载 '+
+          (MODEL_SIZE/1048576).toFixed(1)+' MB 中文模型。'+
+          '<button type="button" class="linkbtn" id="preloadBtn">提前下载</button>'+
+          '（建议 WiFi，下载一次永久缓存）。';
+        var btn = el.setupHint.querySelector('#preloadBtn');
+        if(btn) btn.addEventListener('click', preloadModel);
+      }
+    });
+  }
+
+  function preloadModel(){
+    if(VOSK.ready || VOSK.loading) return;
+    var last = 0;
+    el.setupHint.innerHTML = '开始下载离线识别模型…';
+    VOSK.cancelled = false;
+    VOSK.onProgress = function(got, total, fromCache){
+      if(fromCache) return;
+      var now = Date.now();
+      if(now - last < 250 && got < total) return;
+      last = now;
+      el.setupHint.innerHTML = '正在下载离线识别模型 '+(got/1048576).toFixed(1)+' / '+
+        (total/1048576).toFixed(1)+' MB · '+Math.round(total? got/total*100 : 0)+'%（断流会自动续传）';
+    };
+    VOSK.load().then(function(ok){
+      VOSK.onProgress = null;
+      if(ok) el.setupHint.innerHTML = '离线识别模型已就绪（已缓存到本机，之后开始演练秒开）。';
+      else el.setupHint.innerHTML = '离线模型下载失败：'+(VOSK.lastError||'未知原因')+'。可稍后重试，或直接在演练中使用「手动标记」。';
+    });
   }
 
   function resetCounters(){
@@ -1120,6 +1175,24 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     }
   }
   function clearRecogStatus(){ el.recogStatus.hidden = true; }
+
+  // 模型下载中的状态条：带百分比进度条（reuse 同一个容器，轻量更新不重建 DOM）
+  function setRecogProgress(msg, pct, onCancel){
+    el.recogStatus.className = 'recog-status warn';
+    el.recogStatus.hidden = false;
+    if(!el.recogStatus.querySelector('.pbar')){
+      el.recogStatus.innerHTML = '<span class="dot"></span><span class="ptxt"></span>'+
+        '<span class="pbar"><i></i></span><span class="pnum"></span>'+
+        '<button type="button" id="rsAction">取消</button>';
+      var btn = el.recogStatus.querySelector('#rsAction');
+      if(btn && onCancel) btn.addEventListener('click', onCancel);
+    }
+    el.recogStatus.querySelector('.ptxt').textContent = msg;
+    var bar = el.recogStatus.querySelector('.pbar i');
+    if(bar) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    var num = el.recogStatus.querySelector('.pnum');
+    if(num) num.textContent = Math.round(pct) + '%';
+  }
 
   function renderFillerButtons(){
     var words = uniq(allWords());
@@ -1342,6 +1415,8 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
   //   model/model.vosk  中文小模型打包（vosk-model-small-cn-0.22，约 40MB）
   // 仅在 Google(webkitSpeechRecognition) 报错 / 长时间无结果 / 浏览器不支持时启用。
   var VOSK_MODEL_TIMEOUT = 180000;   // 模型加载上限 3 分钟（首次下载 40MB 给足余量）
+  var MODEL_SIZE = 43889486;         // model/model.vosk 的精确字节数：用于完整性校验与进度百分比
+  var modelDownloadAbort = null;     // 下载中可被「取消」按钮掐断
   // 必须用「绝对 URL」：模型是在 Web Worker（blob: 源）里 fetch 的，
   // 相对路径会按 blob:https://host/<uuid> 解析，GitHub Pages 子目录（/仓库名/）下的前缀会丢 → 404。
   function absUrl(path){
@@ -1351,11 +1426,128 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       return new URL(path, base).href;
     }catch(e){ return path; }
   }
+
+  /* ---- 模型本地缓存（IndexedDB）：下过一次就永远不用再下 ---- */
+  var ModelCache = {
+    DB:'ylj_vosk', STORE:'files', KEY:'model.vosk', _db:null, _p:null,
+    _open(){
+      if(this._db) return Promise.resolve(this._db);
+      if(this._p) return this._p;
+      var self = this;
+      this._p = new Promise(function(resolve){
+        try{
+          if(!window.indexedDB){ resolve(null); return; }
+          var rq = indexedDB.open(self.DB, 1);
+          rq.onupgradeneeded = function(){ try{ rq.result.createObjectStore(self.STORE); }catch(e){} };
+          rq.onsuccess = function(){ self._db = rq.result; resolve(self._db); };
+          rq.onerror = function(){ resolve(null); };
+          rq.onblocked = function(){ resolve(null); };
+        }catch(e){ resolve(null); }
+      });
+      return this._p;
+    },
+    get(){
+      var self = this;
+      return this._open().then(function(db){
+        if(!db) return null;
+        return new Promise(function(resolve){
+          try{
+            var rq = db.transaction(self.STORE,'readonly').objectStore(self.STORE).get(self.KEY);
+            rq.onsuccess = function(){ resolve(rq.result || null); };
+            rq.onerror = function(){ resolve(null); };
+          }catch(e){ resolve(null); }
+        });
+      }).catch(function(){ return null; });
+    },
+    put(blob){
+      var self = this;
+      return this._open().then(function(db){
+        if(!db) return false;
+        return new Promise(function(resolve){
+          try{
+            var tx = db.transaction(self.STORE,'readwrite');
+            tx.objectStore(self.STORE).put(blob, self.KEY);
+            tx.oncomplete = function(){ resolve(true); };
+            tx.onerror = function(){ resolve(false); };
+            tx.onabort = function(){ resolve(false); };
+          }catch(e){ resolve(false); }
+        });
+      }).catch(function(){ return false; });
+    },
+    clear(){
+      var self = this;
+      return this._open().then(function(db){
+        if(!db) return false;
+        try{ db.transaction(self.STORE,'readwrite').objectStore(self.STORE).delete(self.KEY); }catch(e){}
+        return true;
+      }).catch(function(){ return false; });
+    }
+  };
+
+  /* ---- 带进度 + 断点续传 + 自动重试的下载器 ----
+     国内直连 GitHub Pages 经常几千字节每秒甚至中途断流，一次性 fetch 很容易「下载半天下不好」。
+     这里的做法：分块读取 → 记录已收字节 → 断流/超时就用 Range 从断点续传 → 最多重试 6 次。 */
+  function downloadModel(url, onProgress, shouldCancel){
+    var MAX_TRIES = 6;
+    return new Promise(function(resolve, reject){
+      var chunks = [], received = 0, tries = 0, ctrl = null;
+      function report(){ if(onProgress) onProgress(received, MODEL_SIZE); }
+      function fail(err){
+        tries++;
+        if((shouldCancel && shouldCancel()) || tries >= MAX_TRIES){ reject(err); return; }
+        report();
+        setTimeout(attempt, Math.min(6000, 700*tries));   // 退避后从断点续
+      }
+      function attempt(){
+        if(shouldCancel && shouldCancel()){ reject(new Error('已取消')); return; }
+        try{ ctrl = new AbortController(); }catch(e){ ctrl = null; }
+        var lastByteAt = Date.now();
+        var stall = setInterval(function(){
+          // 20 秒没有新字节 = 断流，主动掐断走续传
+          if(Date.now() - lastByteAt > 20000){ try{ if(ctrl) ctrl.abort(); }catch(e){} }
+        }, 1000);
+        var headers = {};
+        if(received > 0) headers['Range'] = 'bytes=' + received + '-';
+        var done = function(){ clearInterval(stall); };
+        fetch(url, { headers:headers, cache:'no-store', signal: ctrl ? ctrl.signal : undefined })
+          .then(function(res){
+            // 服务器不支持 Range 时返回 200，只能从头再来
+            if(received > 0 && res.status === 200){ chunks = []; received = 0; }
+            if(!res.ok && res.status !== 206) throw new Error('HTTP ' + res.status);
+            if(!res.body || !res.body.getReader){
+              return res.arrayBuffer().then(function(buf){
+                chunks.push(buf); received += buf.byteLength; lastByteAt = Date.now(); report();
+              });
+            }
+            var reader = res.body.getReader();
+            function pump(){
+              return reader.read().then(function(step){
+                if(step.done) return;
+                chunks.push(step.value); received += step.value.byteLength;
+                lastByteAt = Date.now(); report();
+                return pump();
+              });
+            }
+            return pump();
+          })
+          .then(function(){
+            done();
+            if(received < MODEL_SIZE) throw new Error('下载不完整（'+received+'/'+MODEL_SIZE+' 字节）');
+            var blob = new Blob(chunks, { type:'application/octet-stream' });
+            blob.size === MODEL_SIZE ? resolve(blob) : fail(new Error('模型大小校验失败'));
+          })
+          .catch(function(err){ done(); fail(err); });
+      }
+      attempt();
+      // 给外部一个取消入口
+      modelDownloadAbort = function(){ try{ if(ctrl) ctrl.abort(); }catch(e){} };
+    });
+  }
   var VOSK = {
     libUrl: absUrl('vosk/vosk.js'),
     modelUrl: absUrl('model/model.vosk'),
     scriptState:0,        // 0 未加载 / 1 加载中 / 2 已就绪
-    model:null, loading:false, ready:false, active:false, lastError:null, ticker:null,
+    model:null, loading:false, ready:false, active:false, lastError:null,
     ctx:null, ownCtx:false, srcNode:null, procNode:null, sinkNode:null, rec:null,
     onPartial:null, onFinal:null,
 
@@ -1382,27 +1574,48 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       return this._scriptP;
     },
 
-    // ② 下载 + 解包模型（浏览器会缓存，第二次启动基本秒开）
+    // ② 取模型（先本地 IndexedDB 缓存 → 再带进度/断点续传下载），再交给 worker 解包
     load(){
       var self = this;
       if(this.ready) return Promise.resolve(true);
       if(this.loading) return this._loadP || Promise.resolve(false);
-      this.loading = true;
+      this.loading = true; this.cancelled = false; this.source = '';
       this._loadP = this.loadScript().then(function(ok){
         if(!ok) throw new Error('vosk.js 未能加载（请确认仓库内存在 vosk/vosk.js）');
+        // ① 本地缓存命中：连网都不用，直接秒开
+        return ModelCache.get();
+      }).then(function(cached){
+        if(cached && cached.size === MODEL_SIZE){
+          self.source = 'cache';
+          if(self.onProgress) self.onProgress(MODEL_SIZE, MODEL_SIZE, true);
+          return cached;
+        }
+        if(cached && cached.size !== MODEL_SIZE){ ModelCache.clear(); }  // 缓存损坏，重下
+        self.source = 'net';
+        return downloadModel(self.modelUrl, function(got, total){
+          if(self.onProgress) self.onProgress(got, total, false);
+        }, function(){ return self.cancelled; }).then(function(blob){
+          ModelCache.put(blob);   // 异步落缓存，失败不影响本次使用
+          return blob;
+        });
+      }).then(function(blob){
+        if(self.cancelled) throw new Error('已取消下载');
+        self.blob = blob;
+        if(self.blobUrl){ try{ URL.revokeObjectURL(self.blobUrl); }catch(e){} }
+        self.blobUrl = URL.createObjectURL(blob);
         var V = window.Vosk;
-        // 优先自己 new Model：库自带的 createModel 在 worker 报错时既不 resolve 也不 reject，会把界面卡在「加载中」
+        // 自己 new Model：库自带的 createModel 在 worker 报错时既不 resolve 也不 reject，会把界面卡在「加载中」
         if(typeof V.Model !== 'function'){
           if(typeof V.createModel !== 'function') throw new Error('vosk.js 版本不匹配（缺少 Model / createModel）');
-          return V.createModel(self.modelUrl);
+          return V.createModel(self.blobUrl);
         }
-        var model = new V.Model(self.modelUrl, 0);
+        var model = new V.Model(self.blobUrl, 0);
         return new Promise(function(resolve, reject){
           var done = false;
           var timer = setTimeout(function(){
             if(done) return; done = true;
-            reject(new Error('模型加载超时（40MB 首次下载较慢，请检查网络后重试）'));
-          }, VOSK_MODEL_TIMEOUT);
+            reject(new Error('模型解包超时（文件可能不完整，请重试）'));
+          }, 120000);
           model.addEventListener('load', function(e){
             if(done) return; done = true; clearTimeout(timer);
             if(e && e.detail && e.detail.result) resolve(model);
@@ -1536,16 +1749,31 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     state.voskMode = true;
     updateModeBadge();
     setRecogStatus('warn', '正在加载离线识别引擎（首次需下载约 40MB 中文模型，之后走浏览器缓存）…');
-    // 首次下载 40MB 在手机流量下可能要等一会儿，加个秒数让用户知道没卡死
+    // 首次下载 40MB 在手机流量下可能要等一会儿：显示真实进度条 + 可取消
     var t0 = Date.now();
-    stopVoskTicker();
-    VOSK.ticker = setInterval(function(){
-      if(state.phase !== 'running'){ stopVoskTicker(); return; }
-      var s = Math.round((Date.now()-t0)/1000);
-      setRecogStatus('warn', '正在加载离线识别引擎（首次需下载约 40MB 中文模型，已等待 '+s+' 秒；之后走浏览器缓存）…');
-    }, 1000);
+    var cancelled = false;
+    var lastPaint = 0;
+    VOSK.cancelled = false;
+    VOSK.onProgress = function(got, total, fromCache){
+      if(state.phase !== 'running') return;
+      var now = Date.now();
+      var pct = total > 0 ? got/total*100 : 0;
+      if(!fromCache && pct < 100 && now - lastPaint < 250) return;   // 限流，别把 DOM 刷爆
+      lastPaint = now;
+      var mb = (got/1048576).toFixed(1), tm = (total/1048576).toFixed(1);
+      var sec = Math.max(1, Math.round((now-t0)/1000));
+      var speed = got > 0 ? (got/1024/sec).toFixed(0)+' KB/s' : '';
+      var head = fromCache ? '已从本机缓存读取模型' : ('首次加载离线模型 '+mb+' / '+tm+' MB'+(speed?' · '+speed:''));
+      setRecogProgress(head, pct, function(){
+        cancelled = true; VOSK.cancelled = true;
+        if(modelDownloadAbort) modelDownloadAbort();
+      });
+    };
+    // 还没收到第一个字节时先显示「连接中」，避免只有一行静态文字
+    VOSK.onProgress(0, MODEL_SIZE, false);
     VOSK.load().then(function(ok){
-      stopVoskTicker();
+      VOSK.onProgress = null;
+      if(cancelled){ state.voskMode = false; fallback('已取消离线识别模型的下载'); return null; }
       if(!ok){
         state.voskMode = false;
         fallback('离线模型加载失败（'+(VOSK.lastError||'未知原因')+'）：请确认仓库内存在 vosk/vosk.js 与 model/model.vosk');
@@ -1589,7 +1817,6 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
         setRecogStatus('ok', '离线识别中（Vosk·本地模型）：请开始说话，文字会逐句出现');
       }
     }).catch(function(err){
-      stopVoskTicker();
       console.error('[Vosk] 切换失败：', err);
       state.voskMode = false;
       fallback('离线识别初始化失败：请确认仓库内存在 vosk/vosk.js 与 model/model.vosk');
@@ -1728,10 +1955,6 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       try{ state.voskStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
       state.voskStream = null;
     }
-  }
-  // 模型下载等待提示的秒表
-  function stopVoskTicker(){
-    if(VOSK.ticker){ clearInterval(VOSK.ticker); VOSK.ticker = null; }
   }
 
   /* ---------------------------------------------------------------- 计时 */
@@ -1886,7 +2109,6 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     }
     clearTimeout(state.watchdogId);
     VOSK.stop();
-    stopVoskTicker();
     stopVoskStream();
     stopAudio();
     // 收尾：末句往往还停在 interim（Vosk / Google 定稿有延迟），
@@ -1929,6 +2151,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     renderTranscript(); renderMetrics(); updateTimerUI(); drawWpm(); drawVol();
     setPhase('idle');
     showView('practice');   // 回到演练视图，使底部固定操作条（开始演练）可见
+    renderModelHint();      // 刷新「模型是否已缓存」提示
     window.scrollTo({ top:0, behavior:'smooth' });
   }
 
