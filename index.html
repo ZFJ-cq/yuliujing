@@ -131,7 +131,7 @@ body{
   width:14px; height:9px; border-radius:2px; display:inline-block; margin-right:5px;
   background:var(--jade-soft); border:1px solid #c9e2da;
 }
-button{font-family:inherit; cursor:pointer; transition:all .16s ease}
+button{font-family:inherit; cursor:pointer; transition:all .16s ease; touch-action:manipulation; -webkit-tap-highlight-color:transparent}
 button:disabled{cursor:not-allowed; opacity:.55}
 .primary{
   border:none; border-radius:var(--r-s); color:#fff; font-weight:650; font-size:14px;
@@ -366,6 +366,130 @@ footer b{color:var(--jade-d); font-weight:600}
   opacity:0; pointer-events:none; transition:all .25s ease; z-index:80; max-width:88vw; text-align:center;
 }
 .toast.show{opacity:1; transform:translate(-50%,0)}
+
+/* ===================== 页面导航与二级视图 ===================== */
+.topnav{ display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 18px }
+.navlink{
+  font-family:inherit; cursor:pointer; border:1px solid var(--line); background:#fff;
+  color:var(--ink2); font-size:14px; padding:9px 18px; border-radius:999px;
+  transition:all .16s ease; -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+}
+.navlink:hover{ border-color:var(--jade); color:var(--ink) }
+.navlink.active{
+  background:linear-gradient(135deg,var(--jade),#5c9b8f); color:#fff; border-color:transparent;
+  box-shadow:0 4px 14px rgba(47,125,114,.22);
+}
+.view{ display:none }
+.view.active{ display:block; animation:viewin .26s ease }
+@keyframes viewin{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+
+/* 设置页 */
+.set-row{ margin-bottom:16px }
+.set-row:last-child{ margin-bottom:0 }
+.set-tip{ font-size:12px; color:var(--ink2); line-height:1.7; margin:7px 0 0 }
+.set-row input[type=text]{ width:100% }
+.placeholder-card{ text-align:center; padding:34px 18px; color:var(--ink2) }
+.placeholder-card .big{ font-size:15px; color:var(--ink); margin-bottom:8px }
+.help-body h2{ font-family:var(--serif); font-size:21px; margin:0 0 4px; letter-spacing:2px; color:var(--ink) }
+.help-body .sub{ font-size:12px; color:var(--ink3); margin:0 0 6px }
+.help-body h4{ font-size:12.5px; color:var(--jade-d); margin:18px 0 6px; letter-spacing:.5px }
+.help-body p, .help-body li{ font-size:12.5px; color:var(--ink2); line-height:1.9; margin:0 }
+.help-body ol, .help-body ul{ padding-left:19px; margin:4px 0 }
+.help-body li{ margin-bottom:4px }
+.help-body code{ background:var(--line2); color:var(--jade-d); padding:1px 5px; border-radius:4px; font-size:11.5px }
+.help-body .callout{
+  background:var(--jade-soft); border:1px solid #cfe6df; border-left:3px solid var(--jade);
+  border-radius:10px; padding:13px 15px; font-size:12px; color:var(--ink2); line-height:1.8; margin-top:10px;
+}
+
+/* ===================== 移动端适配（手机浏览器优先） ===================== */
+/* 触屏通用：去掉点击高亮、避免双击缩放的 300ms 延迟 */
+button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:transparent; }
+
+@media(max-width:600px){
+  /* 容器与顶栏 */
+  .wrap{
+    padding:0 14px 34px;
+    padding-left:max(14px,env(safe-area-inset-left));
+    padding-right:max(14px,env(safe-area-inset-right));
+  }
+  .topbar{ padding:16px 0 14px; gap:10px }
+  .brand h1{ font-size:22px; letter-spacing:2px }
+  .brand p{ font-size:11px; margin-top:3px }
+  .logo{ width:34px; height:34px }
+  .badges{ width:100%; order:3; margin-top:2px }
+  .badge{ font-size:11px; padding:5px 9px }
+  .badges .ghost{ flex:1 1 120px; text-align:center; min-height:38px }
+  .card{ padding:15px; margin-bottom:13px }
+  .card-head{ margin-bottom:11px }
+  .card-head > span:first-child{ font-size:12.5px }
+  .card-head .value{ font-size:16px }
+
+  /* 设置条：纵向堆叠，主按钮整行可点 */
+  .setup-row{ flex-direction:column; align-items:stretch; gap:13px }
+  .setup-spacer{ display:none }
+  .custom-dur{ width:100% }
+  .custom-dur input{ width:100% }
+  .setup-actions{ width:100% }
+  .setup-actions .primary.big{ width:100%; flex:1; text-align:center; font-size:16px; padding:15px }
+  .setup-extra{ flex-direction:column; align-items:stretch; gap:9px }
+  .setup-extra .hint{ white-space:normal }
+  .setup-extra input{ min-width:0; max-width:none; width:100% }
+  .setup-hint{ font-size:11px; line-height:1.7 }
+
+  /* 计时与图表 */
+  .timer-main{ gap:8px }
+  .elapsed{ font-size:clamp(44px,15vw,62px) }
+  .timer-side .side-label{ font-size:10.5px }
+  .countdown{ font-size:25px }
+  .canvas-wrap{ height:150px }
+  .canvas-wrap.small{ height:74px }
+
+  /* 实时指标 */
+  .metric{ padding:11px 4px }
+  .m-num{ font-size:21px }
+  .m-lab{ font-size:10.5px }
+
+  /* 转写 / 手动补记 */
+  .transcript{ font-size:13.5px; height:240px }
+  .filler-strip{ gap:5px }
+  .fpill{ font-size:11px; padding:3px 8px }
+  .filler-btns{ gap:7px }
+  .fbtn{ padding:12px 2px; font-size:13px }
+  .mini.wide{ padding:13px; font-size:13px }
+  .manual-card textarea{ font-size:13px }
+
+  /* 反馈卡 */
+  .fb-hero{ gap:11px }
+  .fb-hero h2{ font-size:18px; letter-spacing:1.5px }
+  .fb-hero .seal{ width:40px; height:40px; font-size:19px; border-radius:10px }
+  .fb-actions{ width:100% }
+  .fb-actions .primary, .fb-actions .ghost{ flex:1; text-align:center; padding:12px 10px }
+  .fb-box h3{ font-size:12px }
+
+  /* 弹层与提示（含刘海屏安全区） */
+  .modal{
+    padding:12px;
+    padding-top:max(12px,env(safe-area-inset-top));
+    padding-bottom:max(12px,env(safe-area-inset-bottom));
+  }
+  .modal-inner{ padding:20px 17px; max-height:88vh; border-radius:15px }
+  .modal-inner h2{ font-size:19px }
+  .modal-inner .sub{ font-size:11.5px }
+  .modal-inner h4{ font-size:12px; margin:15px 0 5px }
+  .modal-inner p, .modal-inner li{ font-size:12px }
+  .modal-close{ padding:13px }
+  .toast{
+    bottom:max(20px,env(safe-area-inset-bottom));
+    font-size:12.5px; padding:10px 16px; border-radius:10px;
+  }
+  footer{ font-size:11px; padding-top:6px }
+}
+
+@media(max-width:360px){
+  .brand p{ display:none }
+  .elapsed{ font-size:clamp(40px,14vw,54px) }
+}
 </style>
 </head>
 <body>
@@ -394,6 +518,15 @@ footer b{color:var(--jade-d); font-weight:600}
     </div>
   </header>
 
+  <nav class="topnav" aria-label="页面导航">
+    <button class="navlink active" data-view="practice" type="button">演练</button>
+    <button class="navlink" data-view="settings" type="button">设置</button>
+    <button class="navlink" data-view="report" type="button">报告</button>
+    <button class="navlink" data-view="help" type="button">说明</button>
+  </nav>
+
+  <div class="view active" data-view="practice">
+
   <!-- ======================= 设置条 ======================= -->
   <section class="card">
     <div class="setup-row">
@@ -416,11 +549,6 @@ footer b{color:var(--jade-d); font-weight:600}
         <button class="primary big" id="startBtn" type="button">● 开始演练</button>
         <button class="ghost" id="resetBtn" type="button" hidden>重置</button>
       </div>
-    </div>
-    <div class="setup-extra">
-      <span class="hint" style="white-space:nowrap">补充口头禅</span>
-      <input id="customWords" type="text" placeholder="逗号分隔，如：其实,对吧,所以说,这个">
-      <span class="hint">默认已监测：那个 / 然后 / 就是 / 嗯 / 啊</span>
     </div>
     <div class="setup-hint" id="setupHint">
       首次点击会请求麦克风权限；<b>空格键</b>也可开始 / 结束。演练结束后自动生成反馈卡并可导出图片。
@@ -505,76 +633,114 @@ footer b{color:var(--jade-d); font-weight:600}
       </section>
     </div>
   </div>
+  </div><!-- /.view practice -->
 
-  <!-- ======================= 反馈卡 ======================= -->
-  <section class="card feedback" id="feedbackCard" hidden>
-    <div class="card-head">
-      <span>演练反馈卡</span>
-      <div class="fb-actions">
-        <button class="primary" id="exportBtn" type="button">导出为图片</button>
-        <button class="ghost" id="againBtn" type="button">再练一次</button>
+  <!-- ======================= 设置页 ======================= -->
+  <div class="view" data-view="settings">
+    <section class="card">
+      <div class="card-head"><span>词库与偏好</span></div>
+      <div class="set-row">
+        <div class="label">自定义填充词（逗号分隔）</div>
+        <input id="customWords" type="text" placeholder="如：其实,对吧,所以说,这个">
+        <p class="set-tip">默认已监测：那个 / 然后 / 就是 / 嗯 / 啊。新增词会即时加入转写高亮与计数，仅保存在本机。</p>
       </div>
-    </div>
-    <div class="fb-hero">
-      <div class="seal">镜</div>
-      <div>
-        <h2>这一遍，说清楚了</h2>
-        <p id="fbMeta">—</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><span>数据与隐私</span></div>
+      <p class="set-tip">语流镜在本机完成全部识别与计算，<b>不采集、不上传、不存储</b>任何音频或文本，无第三方 SDK / CDN / 字体 / 统计脚本；localStorage 仅保存「目标时长」与「自定义填充词」两个设置。音量波形不录制、不落盘。</p>
+      <p class="set-tip">如实说明：Chrome / Edge 的 Web Speech API 由浏览器厂商实现，部分版本会把音频片段送往厂商云端完成识别，这是浏览器行为而非本应用行为。</p>
+    </section>
+    <section class="card">
+      <div class="card-head"><span>目标时长</span></div>
+      <p class="set-tip">目标时长在「演练」页选择（3 / 5 / 8 / 10 / 15 分钟或自定义），用于倒计时与进度条，设置自动保存在本机。</p>
+    </section>
+  </div>
+
+  <!-- ======================= 报告页 ======================= -->
+  <div class="view" data-view="report">
+    <section class="card placeholder-card" id="reportEmpty">
+      <div class="big">还没有本场反馈卡</div>
+      <p>完成一次演练后，反馈卡会自动出现在这里。去「演练」开始吧。</p>
+    </section>
+    <section class="card feedback" id="feedbackCard" hidden>
+      <div class="card-head">
+        <span>演练反馈卡</span>
+        <div class="fb-actions">
+          <button class="primary" id="exportBtn" type="button">导出为图片</button>
+          <button class="ghost" id="againBtn" type="button">再练一次</button>
+        </div>
       </div>
-    </div>
-    <div class="fb-stats" id="fbStats"></div>
-    <div class="fb-grid" id="fbGrid"></div>
-    <div class="fb-foot">🔒 音频与文本全程不出浏览器 · 语流镜 · 本地生成</div>
-  </section>
+      <div class="fb-hero">
+        <div class="seal">镜</div>
+        <div>
+          <h2>这一遍，说清楚了</h2>
+          <p id="fbMeta">—</p>
+        </div>
+      </div>
+      <div class="fb-stats" id="fbStats"></div>
+      <div class="fb-grid" id="fbGrid"></div>
+      <div class="fb-foot">🔒 音频与文本全程不出浏览器 · 语流镜 · 本地生成</div>
+    </section>
+    <section class="card help-body">
+      <div class="card-head"><span>指标口径</span></div>
+      <h4>语速</h4>
+      <p class="set-tip">按最近 15 秒滚动窗口计算「字 / 分钟」；中文舒适区取 180–260 字/分，低于 150 偏慢、高于 320 偏快。</p>
+      <h4>字数</h4>
+      <p class="set-tip">只统计中日韩汉字与字母数字，不计标点与空白。</p>
+      <h4>填充词</h4>
+      <p class="set-tip">默认「那个 / 然后 / 就是 / 嗯 / 啊」，可追加自定义词，按出现次数计。</p>
+      <h4>长停顿</h4>
+      <p class="set-tip">两次识别结果之间静默超过 1.5 秒记为一次；因浏览器按句返回结果，停顿为估算值。</p>
+    </section>
+  </div>
+
+  <!-- ======================= 说明页 ======================= -->
+  <div class="view" data-view="help">
+    <section class="card help-body">
+      <h2>使用与部署说明</h2>
+      <p class="sub">语流镜 · MVP 版本 · 三个核心功能：实时计时与语速曲线、转写高亮、反馈卡导出</p>
+
+      <h4>① 怎么用</h4>
+      <ol>
+        <li>选目标时长（3 / 5 / 8 / 10 / 15 分钟，或自定义），可补充自己的口头禅。</li>
+        <li>点「开始演练」并允许麦克风；对着麦克风正常讲即可。</li>
+        <li>结束后自动生成反馈卡，点「导出为图片」保存分享。<b>空格键</b>可开始 / 结束。</li>
+      </ol>
+
+      <h4>② 判读口径</h4>
+      <ul>
+        <li>语速：按最近 15 秒滚动窗口计算「字 / 分钟」；中文舒适区取 <b>180–260 字/分</b>，低于 150 偏慢、高于 320 偏快。</li>
+        <li>字数：只统计中日韩汉字与字母数字，不计标点与空白。</li>
+        <li>填充词：默认「那个 / 然后 / 就是 / 嗯 / 啊」，可追加自定义词，按出现次数计。</li>
+        <li>长停顿：两次识别结果之间静默超过 <b>1.5 秒</b> 记为一次；因浏览器按句返回结果，停顿为估算值。</li>
+      </ul>
+
+      <h4>③ 浏览器与降级</h4>
+      <p>Chrome / Edge 支持 <code>webkitSpeechRecognition</code>（zh-CN），为完整模式；Safari / Firefox 自动切换为「纯计时 + 手动标记」：点按钮补记口头禅与长停顿，并可粘贴讲稿估算平均语速。麦克风被拒绝时同样自动降级，计时不受影响。</p>
+
+      <h4>④ 部署到 GitHub Pages</h4>
+      <ul>
+        <li>把本 <code>index.html</code> 放到仓库根目录 → Settings → Pages → Deploy from a branch → main / root → Save。</li>
+        <li>访问 <code>https://&lt;用户名&gt;.github.io/&lt;仓库名&gt;/</code>。必须用 HTTPS 或 localhost，<code>file://</code> 下麦克风与语音识别不可用。</li>
+        <li>本地预览：<code>python3 -m http.server 8080</code>，再开 <code>http://localhost:8080</code>。无需 npm install、无需构建。</li>
+      </ul>
+
+      <h4>⑤ 隐私（请务必看）</h4>
+      <div class="callout">
+        本应用自身<b>不采集、不上传、不存储</b>任何音频或文本，无第三方 SDK / CDN / 字体 / 统计脚本；localStorage 只保存「目标时长」与「自定义填充词」两个设置。音量波形不录制、不落盘。<br>
+        如实说明：Chrome / Edge 的 Web Speech API 由浏览器厂商实现，部分版本会把音频片段送往厂商云端语音服务完成识别，这是浏览器行为而非本应用行为。若业务要求严格离线，请使用二期规划的 Whisper.cpp WASM 离线识别方案。
+      </div>
+
+      <h4>⑥ 二期规划</h4>
+      <p>Whisper.cpp WASM 离线识别 · PWA 离线演练 · 自定义关键词黑名单 · 多场次进步曲线 · 演练录像回顾 · PDF 报告导出。</p>
+    </section>
+  </div>
 
   <footer>
     语流镜 · 演讲演练实时反馈器　|　<b>零依赖 · 零构建 · 静态单文件</b>　|　为述职 / 答辩 / 路演 / 讲课 / 口播而做
   </footer>
 </div>
 
-<!-- ======================= 说明弹层 ======================= -->
-<div class="modal" id="helpModal" hidden>
-  <div class="modal-inner" role="dialog" aria-modal="true" aria-label="使用与部署说明">
-    <h2>使用与部署说明</h2>
-    <p class="sub">语流镜 · MVP 版本 · 三个核心功能：实时计时与语速曲线、转写高亮、反馈卡导出</p>
-
-    <h4>① 怎么用</h4>
-    <ol>
-      <li>选目标时长（3 / 5 / 8 / 10 / 15 分钟，或自定义），可补充自己的口头禅。</li>
-      <li>点「开始演练」并允许麦克风；对着麦克风正常讲即可。</li>
-      <li>结束后自动生成反馈卡，点「导出为图片」保存分享。<b>空格键</b>可开始 / 结束。</li>
-    </ol>
-
-    <h4>② 判读口径</h4>
-    <ul>
-      <li>语速：按最近 15 秒滚动窗口计算「字 / 分钟」；中文舒适区取 <b>180–260 字/分</b>，低于 150 偏慢、高于 320 偏快。</li>
-      <li>字数：只统计中日韩汉字与字母数字，不计标点与空白。</li>
-      <li>填充词：默认「那个 / 然后 / 就是 / 嗯 / 啊」，可追加自定义词，按出现次数计。</li>
-      <li>长停顿：两次识别结果之间静默超过 <b>1.5 秒</b> 记为一次；因浏览器按句返回结果，停顿为估算值。</li>
-    </ul>
-
-    <h4>③ 浏览器与降级</h4>
-    <p>Chrome / Edge 支持 <code>webkitSpeechRecognition</code>（zh-CN），为完整模式；Safari / Firefox 自动切换为「纯计时 + 手动标记」：点按钮补记口头禅与长停顿，并可粘贴讲稿估算平均语速。麦克风被拒绝时同样自动降级，计时不受影响。</p>
-
-    <h4>④ 部署到 GitHub Pages</h4>
-    <ul>
-      <li>把本 <code>index.html</code> 放到仓库根目录 → Settings → Pages → Deploy from a branch → main / root → Save。</li>
-      <li>访问 <code>https://&lt;用户名&gt;.github.io/&lt;仓库名&gt;/</code>。必须用 HTTPS 或 localhost，<code>file://</code> 下麦克风与语音识别不可用。</li>
-      <li>本地预览：<code>python3 -m http.server 8080</code>，再开 <code>http://localhost:8080</code>。无需 npm install、无需构建。</li>
-    </ul>
-
-    <h4>⑤ 隐私（请务必看）</h4>
-    <div class="callout">
-      本应用自身<b>不采集、不上传、不存储</b>任何音频或文本，无第三方 SDK / CDN / 字体 / 统计脚本；localStorage 只保存「目标时长」与「自定义口头禅」两个设置。音量波形不录制、不落盘。<br>
-      如实说明：Chrome / Edge 的 Web Speech API 由浏览器厂商实现，部分版本会把音频片段送往厂商云端语音服务完成识别，这是浏览器行为而非本应用行为。若业务要求严格离线，请使用二期规划的 Whisper.cpp WASM 离线识别方案。
-    </div>
-
-    <h4>⑥ 二期规划</h4>
-    <p>Whisper.cpp WASM 离线识别 · PWA 离线演练 · 自定义关键词黑名单 · 多场次进步曲线 · 演练录像回顾 · PDF 报告导出。</p>
-
-    <button class="primary modal-close" id="helpClose" type="button">知道了</button>
-  </div>
-</div>
 
 <div class="toast" id="toast"></div>
 
@@ -603,7 +769,7 @@ footer b{color:var(--jade-d); font-weight:600}
   /* ---------------------------------------------------------------- DOM */
   function $(id){ return document.getElementById(id); }
   var el = {
-    modeBadge:$('modeBadge'), helpBtn:$('helpBtn'), helpModal:$('helpModal'), helpClose:$('helpClose'),
+    modeBadge:$('modeBadge'), helpBtn:$('helpBtn'), reportEmpty:$('reportEmpty'),
     durChips:$('durChips'), customDur:$('customDur'), customWords:$('customWords'),
     startBtn:$('startBtn'), resetBtn:$('resetBtn'), setupHint:$('setupHint'),
     phaseTag:$('phaseTag'), elapsed:$('elapsed'), countdown:$('countdown'),
@@ -622,6 +788,7 @@ footer b{color:var(--jade-d); font-weight:600}
 
   /* ---------------------------------------------------------------- 状态 */
   var state = {
+    view:'practice',         // 当前视图：practice | settings | report | help
     phase:'idle',            // idle | running | finished
     stopping:false,
     startTime:0, endTime:0,
@@ -797,8 +964,9 @@ footer b{color:var(--jade-d); font-weight:600}
 
   function renderFillerStrip(){
     var words = uniq(allWords());
+    var inter = state.manualMode ? {} : countFillersIn(state.interim);
     el.fillerStrip.innerHTML = words.map(function(w){
-      var n = (state.fillerCounts[w]||0) + (state.manualFillers[w]||0);
+      var n = (state.fillerCounts[w]||0) + (state.manualFillers[w]||0) + (inter[w]||0);
       return '<span class="fpill">'+esc(w)+'<b>'+n+'</b></span>';
     }).join('');
   }
@@ -850,14 +1018,28 @@ footer b{color:var(--jade-d); font-weight:600}
   }
 
   /* ---------------------------------------------------------------- 指标 */
+  // 统计 interim（尚未定稿）文本里的填充词次数，用于实时展示（未计入 fillerCounts）
+  function countFillersIn(text){
+    var map = {};
+    uniq(allWords()).forEach(function(w){
+      if(!w) return;
+      var m = (text||'').match(new RegExp(escapeRe(w),'g'));
+      map[w] = m ? m.length : 0;
+    });
+    return map;
+  }
   function totalChars(){
     var n = state.charEvents.reduce(function(a,b){ return a + b.chars; }, 0);
+    // 自动模式下把「尚未定稿的 interim 文本」也实时计入，使字数随说话即时增长；
+    // 该句定稿后会从 interim 移入 charEvents，不会重复统计。
+    if(!state.manualMode) n += countChars(state.interim || '');
     if(state.manualMode) n += countChars(el.scriptBox.value);
     return n;
   }
   function totalFillers(){
+    var inter = state.manualMode ? {} : countFillersIn(state.interim);
     return uniq(allWords()).reduce(function(a,w){
-      return a + (state.fillerCounts[w]||0) + (state.manualFillers[w]||0);
+      return a + (state.fillerCounts[w]||0) + (state.manualFillers[w]||0) + (inter[w]||0);
     }, 0);
   }
   function longPauseCount(){ return state.pauses.length + state.manualPauses; }
@@ -1247,9 +1429,8 @@ footer b{color:var(--jade-d); font-weight:600}
     state.feedback = computeFeedback();
     renderFeedback(state.feedback);
     el.feedbackCard.hidden = false;
-    setTimeout(function(){
-      el.feedbackCard.scrollIntoView({ behavior:'smooth', block:'start' });
-    }, 80);
+    el.reportEmpty.hidden = true;
+    showView('report');
   }
 
   function reset(){
@@ -1266,6 +1447,7 @@ footer b{color:var(--jade-d); font-weight:600}
     el.wpmNow.textContent = '—'; el.volNow.textContent = '—';
     el.wpmPh.hidden = false; el.volPh.hidden = false;
     el.feedbackCard.hidden = true;
+    el.reportEmpty.hidden = false;
     el.countdown.classList.remove('over'); el.overLabel.textContent = '';
     el.progressFill.style.width = '0%'; el.progressFill.classList.remove('over');
     renderTranscript(); renderMetrics(); updateTimerUI(); drawWpm(); drawVol();
@@ -1589,9 +1771,26 @@ footer b{color:var(--jade-d); font-weight:600}
   el.resetBtn.addEventListener('click', reset);
   el.againBtn.addEventListener('click', reset);
   el.exportBtn.addEventListener('click', exportImage);
-  el.helpBtn.addEventListener('click', function(){ el.helpModal.hidden = false; });
-  el.helpClose.addEventListener('click', function(){ el.helpModal.hidden = true; });
-  el.helpModal.addEventListener('click', function(e){ if(e.target === el.helpModal) el.helpModal.hidden = true; });
+  el.helpBtn.addEventListener('click', function(){ showView('help'); });
+
+  /* ---------------------------------------------------------------- 页面路由（视图切换） */
+  var VIEWS = ['practice','settings','report','help'];
+  function showView(v){
+    if(VIEWS.indexOf(v) < 0) v = 'practice';
+    state.view = v;
+    VIEWS.forEach(function(name){
+      var node = document.querySelector('.view[data-view="'+name+'"]');
+      if(node) node.classList.toggle('active', name === v);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.navlink'), function(b){
+      b.classList.toggle('active', b.dataset.view === v);
+    });
+    if(v === 'practice'){ requestAnimationFrame(fitAll); }
+    window.scrollTo(0,0);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.navlink'), function(b){
+    b.addEventListener('click', function(){ showView(b.dataset.view); });
+  });
 
   el.manualToggle.addEventListener('click', function(){
     el.manualBody.hidden = !el.manualBody.hidden;
@@ -1613,13 +1812,11 @@ footer b{color:var(--jade-d); font-weight:600}
   el.scriptBox.addEventListener('input', renderMetrics);
 
   document.addEventListener('keydown', function(e){
-    if(e.key === 'Escape' && !el.helpModal.hidden){ el.helpModal.hidden = true; return; }
     var tag = (e.target.tagName||'').toLowerCase();
     // 按钮聚焦时交给浏览器原生 click，避免空格触发两次 start/stop
     if(tag === 'input' || tag === 'textarea' || tag === 'button' || e.target.isContentEditable) return;
     if(e.code === 'Space' || e.key === ' '){
       e.preventDefault();
-      if(!el.helpModal.hidden) return;
       if(state.phase === 'running') stop(); else start();
     }
   });
