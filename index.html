@@ -1577,7 +1577,17 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
         fallback('离线识别启动失败（浏览器未提供音频处理节点）');
         return;
       }
-      setRecogStatus('ok', '离线识别中（Vosk·本地模型）：请开始说话，文字会逐句出现');
+      // 首次下载 40MB 模型期间计时一直在走，会把「等待」算进语速分母，
+      // 导致首次演练的平均语速严重偏低。确实等了较久且期间无文字时，扣掉这段等待。
+      var waited = (Date.now() - t0)/1000;
+      if(waited > 3 && totalChars() === 0){
+        state.startTime += Math.round(waited*1000);
+        state.wpmSeries = []; state.charSamples = []; state.volSeries = [];
+        state.lastResultT = 0;
+        setRecogStatus('ok', '离线识别中（Vosk·本地模型）：已跳过模型加载耗时 '+Math.round(waited)+' 秒，计时从现在起算');
+      }else{
+        setRecogStatus('ok', '离线识别中（Vosk·本地模型）：请开始说话，文字会逐句出现');
+      }
     }).catch(function(err){
       stopVoskTicker();
       console.error('[Vosk] 切换失败：', err);
