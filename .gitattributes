@@ -1,0 +1,5 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+# Vosk 离线识别资源：二进制，禁止行尾转换
+*.vosk binary
+vosk/vosk.js -text

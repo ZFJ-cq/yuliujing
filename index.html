@@ -15,7 +15,9 @@
      file:// 协议下不可用。本地预览可用：
          python3 -m http.server 8080
      然后打开 http://localhost:8080 。
-  5. 无需 npm install、无需构建产物、无需 .nojekyll（本仓库没有下划线目录）。
+  5. 无需 npm install、无需构建产物。仓库根目录需放一个空的 .nojekyll；
+     另需两个同源资源用于离线识别：vosk/vosk.js（wasm 已内联）与 model/model.vosk。
+     缺这两个文件时，应用仍可用「计时 + 手动标记」模式，只是没有自动转写。
 
   【浏览器支持】
   · Chrome / Edge：完整模式（实时中文转写 + 自动填充词/停顿标记）。
@@ -40,6 +42,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#f4f8f6">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f7f73'/%3E%3Cpath d='M7 17c2 0 2-5 4-5s2 10 4 10 2-8 4-8 2 4 4 4' fill='none' stroke='%23f7eeda' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
 <meta name="description" content="对着麦克风练一遍汇报，立刻知道自己多快、停顿多久、说了多少「然后/那个/嗯」。音频与文本全程不出浏览器。">
 <title>语流镜 · 演讲演练实时反馈器</title>
 <style>
@@ -859,13 +862,13 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       </div>
 
       <h4>⑥ 离线识别（Vosk）部署说明</h4>
-      <p>为保证国内可用且「音频不出浏览器」，本应用内置 <b>Vosk 离线中文识别</b>作为 Google 识别不可用时的自动兜底。需把以下文件放进仓库（已用同源路径，零外部请求）：</p>
+      <p>为保证国内可用且「音频不出浏览器」，本应用内置 <b>Vosk 离线中文识别</b>作为 Google 识别不可用时的自动兜底。只需两个同源文件（零外部请求、零 CDN）：</p>
       <ul>
-        <li><code>vosk/vosk.js</code> 与 <code>vosk/vosk.wasm</code> —— 来自 <code>npm: vosk-browser</code>（取 dist 下的 ESM 与 wasm，放同目录）。</li>
-        <li><code>model/vosk-model-small-cn-0.15/</code> —— 解压后的 Vosk 中文模型目录（约 40MB）。</li>
-        <li>仓库根目录放一个 <code>.nojekyll</code> 空文件，避免 GitHub Pages 的 Jekyll 忽略模型里的 <code>_</code> 开头文件。</li>
+        <li><code>vosk/vosk.js</code> —— <code>vosk-browser@0.0.8</code> 的 UMD 构建（约 5.8MB，<b>wasm 已内联</b>，不需要额外的 .wasm 文件）。</li>
+        <li><code>model/model.vosk</code> —— 中文小模型 <code>vosk-model-small-cn-0.22</code> 打包成的 <b>tar.gz</b>（约 40MB，文件名故意不带 .gz 以避开 CDN 的 gzip 处理）。</li>
+        <li>仓库根目录放一个 <code>.nojekyll</code> 空文件，避免 GitHub Pages 的 Jekyll 处理干扰。</li>
       </ul>
-      <p class="set-tip">若识别结果含混，可把 <code>VOSK.sampleRate</code>（脚本内常量）由 16000 改为 8000（部分 small 模型按 8kHz 训练）。</p>
+      <p class="set-tip">首次切换离线识别时会下载约 40MB 模型（只在浏览器缓存里，不上传），第二次基本秒开。识别引擎来自 <code>vosk-browser</code>（Apache-2.0），语言模型来自 Vosk 官方中文 small 模型。</p>
 
       <h4>⑦ 二期规划</h4>
       <p>Whisper.cpp WASM 离线识别（更大模型、更高准确率备选） · PWA 离线演练 · 自定义关键词黑名单 · 多场次进步曲线 · 演练录像回顾 · PDF 报告导出。</p>
@@ -939,7 +942,8 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     timeline:[],            // [{type:'seg',text,t} | {type:'pause',dur,t}]
     interim:'',
     segCount:0,
-    charEvents:[],           // [{t, chars}] 用于滚动语速
+    charEvents:[],           // [{t, chars}] 定稿句子的字数（用于累计字数）
+    charSamples:[],          // [{t, total}] 每秒的累计字数快照（含 interim，用于滚动语速）
     pauses:[],               // [{t, dur}] 自动检测到的停顿
     wpmSeries:[],            // [{t, v}]
     volSeries:[],
@@ -1333,83 +1337,156 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
 
   /* ---------------------------------------------------------------- 语音识别 */
   /* ---------------------------------------------------------------- 离线识别（Vosk，同源懒加载） */
-  // 仅当 Google(webkitSpeechRecognition) 不可用 / 报错 / 长时间无结果时启用。
-  // 运行时(vosk.js+wasm) 与中文模型均同源托管，零外部请求，音频不出浏览器。
+  // 只依赖同源两个文件，零外部请求、音频不出浏览器：
+  //   vosk/vosk.js        vosk-browser 0.0.8 的 UMD 构建（wasm 已内联为 data URI，约 5.8MB）
+  //   model/model.vosk  中文小模型打包（vosk-model-small-cn-0.22，约 40MB）
+  // 仅在 Google(webkitSpeechRecognition) 报错 / 长时间无结果 / 浏览器不支持时启用。
+  var VOSK_MODEL_TIMEOUT = 180000;   // 模型加载上限 3 分钟（首次下载 40MB 给足余量）
   var VOSK = {
-    libUrl: './vosk/vosk.js',                        // 从 vosk-browser 取得的 ESM（wasm 放同目录）
-    modelUrl: './model/vosk-model-small-cn-0.15',     // 解压后的模型目录（约 40MB）
-    sampleRate: 16000,                               // 若识别含混，改 8000（部分 small 模型为 8k）
-    model:null, rec:null, ctx:null, srcNode:null, scriptNode:null, gain:null,
-    loading:false, ready:false, active:false,
+    libUrl: './vosk/vosk.js',
+    modelUrl: './model/model.vosk',
+    scriptState:0,        // 0 未加载 / 1 加载中 / 2 已就绪
+    model:null, loading:false, ready:false, active:false, lastError:null, ticker:null,
+    ctx:null, ownCtx:false, srcNode:null, procNode:null, sinkNode:null, rec:null,
     onPartial:null, onFinal:null,
-    async load(){
-      if(this.ready) return true;
-      if(this.loading) return false;
+
+    // ① 注入同源 script 标签，加载完成后暴露全局 window.Vosk
+    loadScript(){
+      var self = this;
+      if(this.scriptState === 2) return Promise.resolve(true);
+      if(this._scriptP) return this._scriptP;
+      this.scriptState = 1;
+      this._scriptP = new Promise(function(resolve){
+        if(window.Vosk){ self.scriptState = 2; resolve(true); return; }
+        if(!document || !document.createElement || !document.head){ self.scriptState = 0; resolve(false); return; }
+        var s = document.createElement('script');
+        s.src = self.libUrl;
+        s.async = true;
+        s.onload = function(){
+          var ok = !!window.Vosk;
+          self.scriptState = ok ? 2 : 0;
+          resolve(ok);
+        };
+        s.onerror = function(){ self.scriptState = 0; resolve(false); };
+        document.head.appendChild(s);
+      });
+      return this._scriptP;
+    },
+
+    // ② 下载 + 解包模型（浏览器会缓存，第二次启动基本秒开）
+    load(){
+      var self = this;
+      if(this.ready) return Promise.resolve(true);
+      if(this.loading) return this._loadP || Promise.resolve(false);
       this.loading = true;
-      try{
-        // 通过 globalThis.import 间接调用：浏览器中是函数，同源加载 ESM；不支持的环境会优雅失败
-        var doImport = (typeof globalThis !== 'undefined' && globalThis.import) ? globalThis.import : null;
-        if(typeof doImport !== 'function') throw new Error('当前环境不支持动态 import()');
-        var mod = await doImport(this.libUrl);
-        if(!mod || !mod.Model || !mod.Recognizer) throw new Error('vosk 模块缺少 Model/Recognizer 导出');
-        this.Model = mod.Model;
-        this.Recognizer = mod.Recognizer;
-        this.model = await this.Model.create(this.modelUrl);
-        this.ready = true; this.loading = false;
+      this._loadP = this.loadScript().then(function(ok){
+        if(!ok) throw new Error('vosk.js 未能加载（请确认仓库内存在 vosk/vosk.js）');
+        var V = window.Vosk;
+        // 优先自己 new Model：库自带的 createModel 在 worker 报错时既不 resolve 也不 reject，会把界面卡在「加载中」
+        if(typeof V.Model !== 'function'){
+          if(typeof V.createModel !== 'function') throw new Error('vosk.js 版本不匹配（缺少 Model / createModel）');
+          return V.createModel(self.modelUrl);
+        }
+        var model = new V.Model(self.modelUrl, 0);
+        return new Promise(function(resolve, reject){
+          var done = false;
+          var timer = setTimeout(function(){
+            if(done) return; done = true;
+            reject(new Error('模型加载超时（40MB 首次下载较慢，请检查网络后重试）'));
+          }, VOSK_MODEL_TIMEOUT);
+          model.addEventListener('load', function(e){
+            if(done) return; done = true; clearTimeout(timer);
+            if(e && e.detail && e.detail.result) resolve(model);
+            else reject(new Error('识别引擎返回加载失败'));
+          });
+          model.addEventListener('error', function(e){
+            if(done) return; done = true; clearTimeout(timer);
+            var msg = (e && e.detail && e.detail.error) ? String(e.detail.error) : '识别引擎报错';
+            reject(new Error(msg));
+          });
+        });
+      }).then(function(model){
+        self.model = model;
+        self.ready = true; self.loading = false;
         return true;
-      }catch(err){
-        this.loading = false;
+      }).catch(function(err){
+        self.ready = false; self.loading = false; self._loadP = null;
+        self.lastError = err && (err.message || String(err));
         console.error('[Vosk] 加载失败：', err);
         return false;
-      }
+      });
+      return this._loadP;
     },
+
+    // ③ 复用演练时已拿到的麦克风流 / AudioContext，把 PCM 送进 worker 识别
     start(stream){
-      if(!this.ready) return false;
+      if(!this.ready || !this.model) return false;
       var self = this;
       try{
         var AC = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AC();
-        if(this.ctx.state === 'suspended' && this.ctx.resume) this.ctx.resume().catch(function(){});
-        this.srcNode = this.ctx.createMediaStreamSource(stream);
-        this.rec = new this.Recognizer({ model:this.model, sampleRate:this.sampleRate });
-        var nativeRate = this.ctx.sampleRate, ratio = nativeRate / this.sampleRate;
-        this.scriptNode = this.ctx.createScriptProcessor(4096, 1, 1);
-        this.scriptNode.onaudioprocess = function(ae){
-          if(!self.active) return;
+        var ctx = (state.audio && state.audio.ctx) ? state.audio.ctx : null;
+        this.ownCtx = !ctx;
+        if(!ctx){ if(!AC) throw new Error('缺少 AudioContext'); ctx = new AC(); }
+        this.ctx = ctx;
+        if(ctx.state === 'suspended' && ctx.resume) ctx.resume().catch(function(){});
+        var rate = ctx.sampleRate || 48000;
+
+        this.rec = new this.model.KaldiRecognizer(rate);
+        this.rec.on('result', function(msg){
+          var t = msg && msg.result ? msg.result.text : '';
+          t = cleanVoskText(t);
+          if(t && self.onFinal) self.onFinal(t);
+        });
+        this.rec.on('partialresult', function(msg){
+          var t = msg && msg.result ? msg.result.partial : '';
+          t = cleanVoskText(t);
+          if(self.onPartial) self.onPartial(t);
+        });
+
+        this.srcNode = ctx.createMediaStreamSource(stream);
+        this.procNode = ctx.createScriptProcessor(4096, 1, 1);
+        this.procNode.onaudioprocess = function(ae){
+          if(!self.active || !self.rec) return;
           var input = ae.inputBuffer.getChannelData(0);
-          var outLen = Math.floor(input.length / ratio);
-          var out = new Int16Array(outLen);
-          for(var i=0;i<outLen;i++){
-            var s = input[Math.floor(i*ratio)];
-            if(s>1) s=1; else if(s<-1) s=-1;
-            out[i] = s<0 ? s*0x8000 : s*0x7FFF;
-          }
-          try{
-            var done = self.rec.acceptWaveform(out);
-            if(done){ if(self.onFinal) self.onFinal((self.rec.result().text)||''); }
-            else { if(self.onPartial) self.onPartial((self.rec.partialResult().partial)||''); }
-          }catch(e){}
+          // 必须拷贝：引擎侧会 transfer 这块 buffer，原引用会被回收
+          try{ self.rec.acceptWaveformFloat(new Float32Array(input), rate); }catch(e){}
         };
-        this.gain = this.ctx.createGain(); this.gain.gain.value = 0; // 静音，避免麦克风回声
-        this.srcNode.connect(this.scriptNode);
-        this.scriptNode.connect(this.gain);
-        this.gain.connect(this.ctx.destination);
+        this.sinkNode = ctx.createGain();
+        this.sinkNode.gain.value = 0;   // 静音输出，避免麦克风回声
+        this.srcNode.connect(this.procNode);
+        this.procNode.connect(this.sinkNode);
+        this.sinkNode.connect(ctx.destination);
         this.active = true;
         return true;
       }catch(e){
         console.error('[Vosk] 启动失败：', e);
+        this.stop();
         return false;
       }
     },
+
     stop(){
       this.active = false;
-      try{ if(this.scriptNode) this.scriptNode.disconnect(); }catch(e){}
-      try{ if(this.gain) this.gain.disconnect(); }catch(e){}
+      var rec = this.rec;
+      this.rec = null;
+      if(rec){ try{ rec.remove(); }catch(e){} }
+      try{ if(this.procNode){ this.procNode.onaudioprocess = null; this.procNode.disconnect(); } }catch(e){}
+      try{ if(this.sinkNode) this.sinkNode.disconnect(); }catch(e){}
       try{ if(this.srcNode) this.srcNode.disconnect(); }catch(e){}
-      try{ if(this.ctx) this.ctx.close(); }catch(e){}
-      this.ctx = this.srcNode = this.scriptNode = this.gain = null;
+      if(this.ownCtx){ try{ if(this.ctx) this.ctx.close(); }catch(e){} }
+      this.ctx = this.srcNode = this.procNode = this.sinkNode = null;
+      this.ownCtx = false;
     }
   };
+
+  // Vosk 中文结果是「词 + 空格 + 词」，把贴近汉字的空格去掉，便于阅读与统计
+  function cleanVoskText(t){
+    t = String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+    if(!t) return '';
+    t = t.replace(/([\u3400-\u9fff\uff00-\uffef])\s+/g, '$1');
+    t = t.replace(/\s+([\u3400-\u9fff\uff00-\uffef])/g, '$1');
+    return t;
+  }
 
   // 共享：把一句话（定稿/临时）送入时间线、字数、填充词与停顿统计（Google 与 Vosk 共用）
   function ingestSegment(text, isFinal){
@@ -1449,25 +1526,54 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     state.manualMode = false;
     state.voskMode = true;
     updateModeBadge();
-    setRecogStatus('warn', '正在切换到离线识别（首次需下载约40MB模型，请稍候）…');
+    setRecogStatus('warn', '正在加载离线识别引擎（首次需下载约 40MB 中文模型，之后走浏览器缓存）…');
+    // 首次下载 40MB 在手机流量下可能要等一会儿，加个秒数让用户知道没卡死
+    var t0 = Date.now();
+    stopVoskTicker();
+    VOSK.ticker = setInterval(function(){
+      if(state.phase !== 'running'){ stopVoskTicker(); return; }
+      var s = Math.round((Date.now()-t0)/1000);
+      setRecogStatus('warn', '正在加载离线识别引擎（首次需下载约 40MB 中文模型，已等待 '+s+' 秒；之后走浏览器缓存）…');
+    }, 1000);
     VOSK.load().then(function(ok){
+      stopVoskTicker();
       if(!ok){
         state.voskMode = false;
-        fallback('离线模型加载失败：请确认已将 vosk.js 与模型放入仓库 vosk/ 与 model/ 目录');
+        fallback('离线模型加载失败（'+(VOSK.lastError||'未知原因')+'）：请确认仓库内存在 vosk/vosk.js 与 model/model.vosk');
+        return null;
+      }
+      if(state.phase !== 'running'){ return null; }
+      var stream = (state.audio && state.audio.stream) ? state.audio.stream : null;
+      if(stream) return stream;
+      // 音量波形不可用时，为离线识别单独申请一路麦克风
+      if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+      setRecogStatus('warn', '正在申请麦克风用于离线识别…');
+      return navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } })
+        .then(function(s){ state.voskStream = s; return s; })
+        .catch(function(){ return null; });
+    }).then(function(stream){
+      if(!stream){
+        if(state.phase === 'running' && state.voskMode){
+          state.voskMode = false;
+          fallback('未获取到麦克风音频流，离线识别无法启动');
+        }
         return;
       }
-      if(state.phase !== 'running'){ return; }
-      var stream = (state.audio && state.audio.stream) ? state.audio.stream : null;
-      if(!stream){ state.voskMode = false; fallback('未获取到麦克风音频流，离线识别无法启动'); return; }
+      if(state.phase !== 'running') return;
       VOSK.onPartial = function(t){ ingestSegment(t, false); };
       VOSK.onFinal = function(t){ ingestSegment(t, true); };
       var started = VOSK.start(stream);
-      if(!started){ state.voskMode = false; fallback('离线识别启动失败'); return; }
+      if(!started){
+        state.voskMode = false;
+        fallback('离线识别启动失败（浏览器未提供音频处理节点）');
+        return;
+      }
       setRecogStatus('ok', '离线识别中（Vosk·本地模型）：请开始说话，文字会逐句出现');
     }).catch(function(err){
+      stopVoskTicker();
       console.error('[Vosk] 切换失败：', err);
       state.voskMode = false;
-      fallback('离线识别初始化失败：请确认已将 vosk.js 与模型放入仓库 vosk/ 与 model/ 目录');
+      fallback('离线识别初始化失败：请确认仓库内存在 vosk/vosk.js 与 model/model.vosk');
     });
   }
 
@@ -1597,6 +1703,17 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       state.audio = null;
     }
   }
+  // 离线识别单独申请的那路麦克风（仅在音量波形不可用时出现）
+  function stopVoskStream(){
+    if(state.voskStream){
+      try{ state.voskStream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+      state.voskStream = null;
+    }
+  }
+  // 模型下载等待提示的秒表
+  function stopVoskTicker(){
+    if(VOSK.ticker){ clearInterval(VOSK.ticker); VOSK.ticker = null; }
+  }
 
   /* ---------------------------------------------------------------- 计时 */
   function updateTimerUI(){
@@ -1624,11 +1741,18 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     var t = elapsedSec();
     if(t < 0.5) return;
     var win = Math.min(WPM_WINDOW, Math.max(5, t));
-    var chars = 0;
-    state.charEvents.forEach(function(e){
-      if(e.t > t-win && e.t <= t) chars += e.chars;
-    });
-    var v = Math.round(chars*60/win);
+    var total = totalChars();
+    // 用「每秒累计字数快照」算窗口增量：这样 interim（尚未定稿）也算进语速，
+    // 否则 Vosk 长时间不吐定稿句时，曲线会一直贴在 0。
+    state.charSamples.push({ t:t, total:total });
+    while(state.charSamples.length > 2 && state.charSamples[0].t < t - win - 3) state.charSamples.shift();
+    var base = state.charSamples[0];
+    for(var k=0;k<state.charSamples.length;k++){
+      if(state.charSamples[k].t <= t - win) base = state.charSamples[k];
+    }
+    var dt = Math.max(1, t - base.t);
+    var chars = Math.max(0, total - base.total);
+    var v = Math.round(chars*60/dt);
     state.wpmSeries.push({ t:t, v:v });
     el.wpmNow.textContent = v;
     el.wpmPh.hidden = true;   // 第一个采样点即可隐藏占位层
@@ -1708,7 +1832,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     state.stopping = false;
     state.startTime = Date.now(); state.endTime = 0;
     state.timeline = []; state.interim = ''; state.segCount = 0;
-    state.charEvents = []; state.pauses = []; state.wpmSeries = []; state.volSeries = [];
+    state.charEvents = []; state.charSamples = []; state.pauses = []; state.wpmSeries = []; state.volSeries = [];
     state.lastResultT = 0; state.manualPauses = 0; state.voskMode = false;
     resetCounters();
     if(fromFinished) el.scriptBox.value = '';
@@ -1743,7 +1867,14 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     }
     clearTimeout(state.watchdogId);
     VOSK.stop();
+    stopVoskTicker();
+    stopVoskStream();
     stopAudio();
+    // 收尾：末句往往还停在 interim（Vosk / Google 定稿有延迟），
+    // 直接清空会把最后一句话从统计里丢掉，先把它并进最终统计再清。
+    if(!state.manualMode && state.interim && state.interim.trim()){
+      ingestSegment(state.interim, true);
+    }
     state.interim = '';
     state.endTime = Date.now();
     sampleWpm();                 // 补最后一个采样点
@@ -1766,7 +1897,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     stopAudio();
     state.phase = 'idle'; state.startTime = 0; state.endTime = 0;
     state.timeline = []; state.interim = ''; state.segCount = 0;
-    state.charEvents = []; state.pauses = []; state.wpmSeries = []; state.volSeries = [];
+    state.charEvents = []; state.charSamples = []; state.pauses = []; state.wpmSeries = []; state.volSeries = [];
     state.manualPauses = 0; state.lastResultT = 0; state.feedback = null;
     resetCounters();
     el.scriptBox.value = '';
@@ -1845,7 +1976,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       avg:avg, minV:minV, maxV:maxV, ev:ev,
       words:words, top5:top5, buckets:buckets,
       autoPauses:state.pauses.length, manualPauses:state.manualPauses,
-      hasCurve:vals.length > 0, manualMode:state.manualMode, advice:advice
+      hasCurve:vals.length > 0, voskMode:state.voskMode, manualMode:state.manualMode, advice:advice
     };
   }
 
@@ -1897,7 +2028,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
         '<div class="fb-note" style="line-height:2.1">'+
         '填充词密度：<b>'+(f.dur>0 ? (totalFillers()/(f.dur/60)).toFixed(1) : '0')+'</b> 次 / 分钟<br>'+
         '转写句数：<b>'+state.segCount+'</b> 句<br>'+
-        '识别模式：<b>'+(f.manualMode?'手动标记':'浏览器实时识别')+'</b><br>'+
+        '识别模式：<b>'+(f.manualMode?'手动标记':(f.voskMode?'离线识别（Vosk·本地模型）':'浏览器实时识别'))+'</b><br>'+
         '超时情况：<b>'+(f.dur>f.target?'超出 '+durText(f.dur-f.target):'未超时')+'</b>'+
         '</div>'+
       '</div>'+
