@@ -1225,14 +1225,30 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
   }
 
   function renderTranscript(){
-    var html = state.timeline.map(function(it){
+    // 把相邻、未被长停顿打断的 seg 合并成一段显示：Vosk 常在 ~0.5s 静音就定稿，
+    // 流畅讲话会被切成很多碎句逐行刷屏，合并后更像自然段落，但底层 timeline 数据不变（统计不受影响）。
+    var parts = [];
+    var group = null;
+    function flushGroup(){
+      if(!group) return;
+      var txt = group.texts.join('');
+      parts.push('<div class="seg"><span class="seg-time">'+clock(group.t)+'</span>'+
+                 '<span class="seg-text">'+highlight(txt)+'</span></div>');
+      group = null;
+    }
+    for(var i=0;i<state.timeline.length;i++){
+      var it = state.timeline[i];
       if(it.type === 'pause'){
+        flushGroup();
         var d = it.dur === null ? '手动标记' : it.dur.toFixed(1)+'s';
-        return '<div class="pause-mark">⏸ 停顿 '+d+' · '+clock(it.t)+'</div>';
+        parts.push('<div class="pause-mark">⏸ 停顿 '+d+' · '+clock(it.t)+'</div>');
+      }else{
+        if(!group) group = { t:it.t, texts:[] };
+        group.texts.push(it.text);
       }
-      return '<div class="seg"><span class="seg-time">'+clock(it.t)+'</span>'+
-             '<span class="seg-text">'+highlight(it.text)+'</span></div>';
-    }).join('');
+    }
+    flushGroup();
+    var html = parts.join('');
     if(state.interim){
       html += '<div class="seg interim"><span class="seg-time">…</span>'+
               '<span class="seg-text">'+esc(state.interim)+'</span></div>';
@@ -1655,7 +1671,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
 
         this.rec = new this.model.KaldiRecognizer(rate);
         this.rec.on('result', function(msg){
-          var t = msg && msg.result ? msg.result.text : '';
+          var t = buildVoskText(msg && msg.result ? msg.result : null);
           t = cleanVoskText(t);
           if(t && self.onFinal) self.onFinal(t);
         });
@@ -1701,13 +1717,53 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     }
   };
 
-  // Vosk 中文结果是「词 + 空格 + 词」，把贴近汉字的空格去掉，便于阅读与统计
+  // 判断一个字符是否为 CJK（含汉字、扩展区、兼容区与全角标点）
+  function isCJK(ch){
+    if(!ch) return false;
+    var c = ch.charCodeAt(0);
+    return (c>=0x3400 && c<=0x9fff) || (c>=0xf900 && c<=0xfaff) || (c>=0xff00 && c<=0xffef);
+  }
+
+  // Vosk 中文结果是「词 + 空格 + 词」，做三层归一化：
+  // ① 折叠相邻完全重复的词（Vosk small-cn 常见结巴「我们 我们 今天 今天」，既难看又会让字数/语速/填充词被重复统计）
+  // ② 仅在「两侧都是汉字/全角标点」时去掉空格（保留「中文 与 英文/数字」之间的空格，更符合中文排版）
+  // ③ 清掉首尾与多余空白
   function cleanVoskText(t){
-    t = String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+    t = String(t == null ? '' : t).replace(/[\u3000\s]+/g, ' ').trim();
     if(!t) return '';
-    t = t.replace(/([\u3400-\u9fff\uff00-\uffef])\s+/g, '$1');
-    t = t.replace(/\s+([\u3400-\u9fff\uff00-\uffef])/g, '$1');
-    return t;
+    var toks = t.split(' '), out = [];
+    for(var i=0;i<toks.length;i++){
+      var tk = toks[i];
+      if(!tk) continue;
+      if(out.length && out[out.length-1].toLowerCase() === tk.toLowerCase()) continue; // 去重相邻重复词
+      out.push(tk);
+    }
+    var merged = '';
+    for(var j=0;j<out.length;j++){
+      var tok = out[j];
+      if(j>0 && isCJK(merged.charAt(merged.length-1)) && isCJK(tok.charAt(0))) merged += tok;
+      else { if(j>0) merged += ' '; merged += tok; }
+    }
+    return merged.replace(/\s+/g,' ').trim();
+  }
+
+  // 从 Vosk 的 result 事件里取文本；若引擎返回了逐词置信度，则过滤掉低置信度（<0.5）的词，
+  // 这些通常是误识别或噪声。该能力依赖模型是否输出 words 数组，取不到时自动回退到原始 text。
+  function buildVoskText(res){
+    try{
+      if(res && Array.isArray(res.result) && res.result.length){
+        var kept = [];
+        for(var i=0;i<res.result.length;i++){
+          var w = res.result[i];
+          var word = (typeof w === 'string') ? w : (w ? w.word : null);
+          if(word == null) continue;
+          var c = (typeof w === 'string') ? 1 : (typeof w.conf === 'number' ? w.conf : 1);
+          if(c >= 0.5) kept.push(word);
+        }
+        if(kept.length) return kept.join(' ');
+      }
+    }catch(e){}
+    return (res && res.text) ? res.text : '';
   }
 
   // 共享：把一句话（定稿/临时）送入时间线、字数、填充词与停顿统计（Google 与 Vosk 共用）
@@ -1785,7 +1841,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
       // 音量波形不可用时，为离线识别单独申请一路麦克风
       if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
       setRecogStatus('warn', '正在申请麦克风用于离线识别…');
-      return navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } })
+      return navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } })
         .then(function(s){ state.voskStream = s; return s; })
         .catch(function(){ return null; });
     }).then(function(stream){
@@ -1902,7 +1958,7 @@ button, .chip, .fbtn, input, textarea, .badge{ -webkit-tap-highlight-color:trans
     var fail = function(){ el.volPh.textContent = '音量波形不可用（不影响计时与识别）'; };
     try{
       if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ fail(); return; }
-      navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } })
+      navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true } })
         .then(function(stream){
           if(state.phase !== 'running'){ stream.getTracks().forEach(function(t){ t.stop(); }); return; }
           try{
